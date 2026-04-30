@@ -18,6 +18,7 @@ export default function ScholasticScorer() {
   const [editTeam1Name, setEditTeam1Name] = useState('');
   const [editTeam2Name, setEditTeam2Name] = useState('');
   const [editingRoster, setEditingRoster] = useState(false);
+  const [archivedGames, setArchivedGames] = useState([]);
   const [rounds, setRounds] = useState(
     Array(24).fill(null).map(() => ({
       tossupWinnerId: null,
@@ -35,6 +36,15 @@ export default function ScholasticScorer() {
         setSavedGames(JSON.parse(saved));
       } catch (e) {
         console.error('Failed to load saved games', e);
+      }
+    }
+    
+    const archived = localStorage.getItem('scholasticArchivedGames');
+    if (archived) {
+      try {
+        setArchivedGames(JSON.parse(archived));
+      } catch (e) {
+        console.error('Failed to load archived games', e);
       }
     }
     
@@ -147,6 +157,94 @@ export default function ScholasticScorer() {
     const updated = savedGames.filter(game => game.id !== id);
     setSavedGames(updated);
     localStorage.setItem('scholasticGames', JSON.stringify(updated));
+  };
+
+  const archiveGame = (gameData) => {
+    // Move game from savedGames to archivedGames
+    const updatedSaved = savedGames.filter(game => game.id !== gameData.id);
+    setSavedGames(updatedSaved);
+    localStorage.setItem('scholasticGames', JSON.stringify(updatedSaved));
+
+    const archivedGame = { ...gameData, archivedAt: new Date().toLocaleString() };
+    const updatedArchived = [...archivedGames, archivedGame];
+    setArchivedGames(updatedArchived);
+    localStorage.setItem('scholasticArchivedGames', JSON.stringify(updatedArchived));
+    alert(`Game "${gameData.competition}" archived successfully! Scores are now locked.`);
+  };
+
+  const exportGameAsText = (gameData) => {
+    const scores = {};
+    let roundNumber = 0;
+    for (let i = 0; i < gameData.rounds.length; i++) {
+      if (gameData.rounds[i].tossupWinnerTeam) {
+        roundNumber++;
+        const roundData = gameData.rounds[i];
+        const tossupTeam = roundData.tossupWinnerTeam === 1 ? gameData.team1Name : gameData.team2Name;
+        
+        if (!scores[tossupTeam]) scores[tossupTeam] = 0;
+        scores[tossupTeam] += roundData.tossupPoints;
+        
+        if (roundData.team1BonusScore > 0) {
+          if (!scores[gameData.team1Name]) scores[gameData.team1Name] = 0;
+          scores[gameData.team1Name] += roundData.team1BonusScore;
+        }
+        if (roundData.team2BonusScore > 0) {
+          if (!scores[gameData.team2Name]) scores[gameData.team2Name] = 0;
+          scores[gameData.team2Name] += roundData.team2BonusScore;
+        }
+      }
+    }
+
+    let text = `SCHOLASTIC COMPETITION SCORESHEET\n`;
+    text += `${'='.repeat(50)}\n\n`;
+    text += `Competition: ${gameData.competition}\n`;
+    text += `Saved: ${gameData.savedAt}\n`;
+    text += `Rounds Completed: ${roundNumber} of 24\n\n`;
+    text += `FINAL SCORES\n`;
+    text += `${'='.repeat(50)}\n`;
+    text += `${gameData.team1Name}: ${scores[gameData.team1Name] || 0} points\n`;
+    text += `${gameData.team2Name}: ${scores[gameData.team2Name] || 0} points\n\n`;
+    text += `ROUND SUMMARY\n`;
+    text += `${'='.repeat(50)}\n`;
+    text += `Round | ${gameData.team1Name.padEnd(20)} | ${gameData.team2Name.padEnd(20)} | Total\n`;
+    text += `${'='.repeat(50)}\n`;
+
+    let team1RunningTotal = 0;
+    let team2RunningTotal = 0;
+
+    for (let i = 0; i < gameData.rounds.length; i++) {
+      if (gameData.rounds[i].tossupWinnerTeam) {
+        const round = i + 1;
+        const roundData = gameData.rounds[i];
+        
+        if (roundData.tossupWinnerTeam === 1) {
+          team1RunningTotal += roundData.tossupPoints + roundData.team1BonusScore;
+        } else {
+          team2RunningTotal += roundData.tossupPoints + roundData.team2BonusScore;
+        }
+        
+        team1RunningTotal += roundData.team1BonusScore;
+        team2RunningTotal += roundData.team2BonusScore;
+
+        const t1Score = (roundData.tossupWinnerTeam === 1 ? roundData.tossupPoints : 0) + roundData.team1BonusScore;
+        const t2Score = (roundData.tossupWinnerTeam === 2 ? roundData.tossupPoints : 0) + roundData.team2BonusScore;
+
+        text += `${String(round).padEnd(5)} | ${String(t1Score).padEnd(20)} | ${String(t2Score).padEnd(20)} | ${team1RunningTotal + team2RunningTotal}\n`;
+      }
+    }
+
+    return text;
+  };
+
+  const downloadAsText = (gameData) => {
+    const text = exportGameAsText(gameData);
+    const element = document.createElement('a');
+    const file = new Blob([text], { type: 'text/plain' });
+    element.href = URL.createObjectURL(file);
+    element.download = `${gameData.competition.replace(/\s+/g, '_')}_score_${gameData.id}.txt`;
+    document.body.appendChild(element);
+    element.click();
+    document.body.removeChild(element);
   };
 
   const handleStartGame = () => {
@@ -334,32 +432,63 @@ export default function ScholasticScorer() {
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 flex items-center justify-center">
         <div className="w-full max-w-3xl bg-slate-800 border-2 border-slate-700 rounded-lg shadow-2xl p-8">
           <h1 className="text-4xl font-bold text-white mb-6 text-center">Load Previous Games</h1>
-          {savedGames.length === 0 ? (
-            <div className="text-center py-12">
-              <p className="text-slate-400 text-lg mb-6">No saved games yet.</p>
-              <button onClick={() => setShowLoadMenu(false)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded transition-colors">Back</button>
-            </div>
-          ) : (
-            <div className="space-y-4 max-h-96 overflow-y-auto">
-              {savedGames.map((game) => (
-                <div key={game.id} className="bg-slate-700 border border-slate-600 rounded-lg p-4 flex justify-between items-center">
-                  <div className="flex-1">
-                    <h3 className="text-lg font-bold text-white">{game.competition}</h3>
-                    <p className="text-slate-300 text-sm">{game.team1Name} vs {game.team2Name}</p>
-                    <div className="flex gap-4 mt-2">
-                      <span className="text-blue-400 font-semibold">{game.scores.team1Score}</span>
-                      <span className="text-slate-400">-</span>
-                      <span className="text-red-400 font-semibold">{game.scores.team2Score}</span>
-                      <span className="text-slate-400 ml-2">• Round {game.currentRound}</span>
+          
+          <div className="mb-8">
+            <h2 className="text-2xl font-bold text-white mb-4">Active Games</h2>
+            {savedGames.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-slate-400 text-lg">No active saved games yet.</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {savedGames.map((game) => (
+                  <div key={game.id} className="bg-slate-700 border border-slate-600 rounded-lg p-4 flex justify-between items-center">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-white">{game.competition}</h3>
+                      <p className="text-slate-300 text-sm">{game.team1Name} vs {game.team2Name}</p>
+                      <div className="flex gap-4 mt-2">
+                        <span className="text-blue-400 font-semibold">{game.scores.team1Score}</span>
+                        <span className="text-slate-400">-</span>
+                        <span className="text-red-400 font-semibold">{game.scores.team2Score}</span>
+                        <span className="text-slate-400 ml-2">• Round {game.currentRound}</span>
+                      </div>
+                      <p className="text-slate-500 text-xs mt-1">Saved: {game.savedAt}</p>
                     </div>
-                    <p className="text-slate-500 text-xs mt-1">Saved: {game.savedAt}</p>
+                    <div className="flex gap-2">
+                      <button onClick={() => loadGame(game)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm">Load</button>
+                      <button onClick={() => downloadAsText(game)} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm">Export</button>
+                      <button onClick={() => archiveGame(game)} className="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm">Archive</button>
+                      <button onClick={() => deleteGame(game.id)} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm">Delete</button>
+                    </div>
                   </div>
-                  <div className="flex gap-2">
-                    <button onClick={() => loadGame(game)} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded transition-colors">Load</button>
-                    <button onClick={() => deleteGame(game.id)} className="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded transition-colors">Delete</button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {archivedGames.length > 0 && (
+            <div className="mb-8">
+              <h2 className="text-2xl font-bold text-amber-400 mb-4">🔒 Archived Games (Locked)</h2>
+              <div className="space-y-4 max-h-96 overflow-y-auto">
+                {archivedGames.map((game) => (
+                  <div key={game.id} className="bg-slate-700 border-2 border-amber-600 rounded-lg p-4 flex justify-between items-center opacity-85">
+                    <div className="flex-1">
+                      <h3 className="text-lg font-bold text-amber-300">🔒 {game.competition}</h3>
+                      <p className="text-slate-300 text-sm">{game.team1Name} vs {game.team2Name}</p>
+                      <div className="flex gap-4 mt-2">
+                        <span className="text-blue-400 font-semibold">{game.scores.team1Score}</span>
+                        <span className="text-slate-400">-</span>
+                        <span className="text-red-400 font-semibold">{game.scores.team2Score}</span>
+                        <span className="text-slate-400 ml-2">• Round {game.currentRound}</span>
+                      </div>
+                      <p className="text-slate-500 text-xs mt-1">Archived: {game.archivedAt}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => downloadAsText(game)} className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded transition-colors text-sm">Export</button>
+                    </div>
                   </div>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
           )}
           <div className="mt-6 flex gap-4">
