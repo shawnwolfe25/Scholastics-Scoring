@@ -1,15 +1,55 @@
 {
   "short_name": "Scholastic Scorer",
-  "name": "Scholastic Matches Scorer",
+  "name": "Scholastic Scorer - Competition Scoring",
+  "description": "Professional scoring app for scholastic competitions with toss-ups and bonus points",
   "icons": [
     {
       "src": "favicon.svg",
       "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "theme_color": "#1e293b",
+  "background_color": "#0f172a",
+  "categories": ["education", "productivity"],
+  "screenshots": [
+    {
+      "src": "favicon.svg",
+      "sizes": "540x720",
+      "form_factor": "narrow",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "favicon.svg",
+      "sizes": "1280x720",
+      "form_factor": "wide",
       "type": "image/svg+xml"
     }
   ],
-  "start_url": ".",
-  "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "shortcuts": [
+    {
+      "name": "Start New Game",
+      "short_name": "New Game",
+      "description": "Start a new scholastic competition scoring session",
+      "url": "/?action=newgame",
+      "icons": [
+        {
+          "src": "favicon.svg",
+          "sizes": "192x192",
+          "type": "image/svg+xml"
+        }
+      ]
+    }
+  ]
 }

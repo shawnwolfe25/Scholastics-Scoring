@@ -1,4 +1,15 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "build"
+  "outputDirectory": "build",
+  "headers": [
+    {
+      "source": "/manifest.json",
+      "headers": [
+        {
+          "key": "Content-Type",
+          "value": "application/manifest+json"
+        }
+      ]
+    }
+  ]
 }

@@ -19,6 +19,8 @@ export default function ScholasticScorer() {
   const [editTeam2Name, setEditTeam2Name] = useState('');
   const [editingRoster, setEditingRoster] = useState(false);
   const [archivedGames, setArchivedGames] = useState([]);
+  const [editingPlayerId, setEditingPlayerId] = useState(null);
+  const [editingPlayerName, setEditingPlayerName] = useState('');
   const [rounds, setRounds] = useState(
     Array(24).fill(null).map(() => ({
       tossupWinnerId: null,
@@ -48,7 +50,6 @@ export default function ScholasticScorer() {
       }
     }
     
-    // Load auto-save if available
     const autoSave = localStorage.getItem('scholasticAutoSave');
     if (autoSave) {
       try {
@@ -60,7 +61,6 @@ export default function ScholasticScorer() {
     }
   }, []);
 
-  // Auto-save game state every 10 seconds when game is active
   React.useEffect(() => {
     if (!gameStarted || editingNames || editingRoster || showLoadMenu || rosterSetup) return;
 
@@ -84,7 +84,7 @@ export default function ScholasticScorer() {
       } catch (e) {
         console.error('Auto-save failed:', e);
       }
-    }, 10000); // Auto-save every 10 seconds
+    }, 10000);
 
     return () => clearInterval(autoSaveInterval);
   }, [gameStarted, competition, team1Name, team2Name, team1Players, team2Players, rounds, currentRound, editingNames, editingRoster, showLoadMenu, rosterSetup]);
@@ -92,22 +92,95 @@ export default function ScholasticScorer() {
   const calculateScores = () => {
     let team1Score = 0;
     let team2Score = 0;
-
-    rounds.forEach((round) => {
-      if (round.tossupWinnerTeam === 1) {
-        team1Score += round.tossupPoints;
-      } else if (round.tossupWinnerTeam === 2) {
-        team2Score += round.tossupPoints;
-      }
-
+    rounds.forEach(round => {
+      if (round.tossupWinnerTeam === 1) team1Score += round.tossupPoints;
+      if (round.tossupWinnerTeam === 2) team2Score += round.tossupPoints;
       team1Score += round.team1BonusScore;
       team2Score += round.team2BonusScore;
     });
-
     return { team1Score, team2Score };
   };
 
   const scores = calculateScores();
+
+  const handleStartGame = () => {
+    if (!team1Name.trim() || !team2Name.trim() || !competition.trim()) {
+      alert('Please fill in all fields');
+      return;
+    }
+    setRosterSetup(true);
+  };
+
+  const addPlayer = (team) => {
+    if (!newPlayerName.trim()) return;
+    const newPlayer = { id: Date.now(), name: newPlayerName };
+    if (team === 1) {
+      setTeam1Players([...team1Players, newPlayer]);
+    } else {
+      setTeam2Players([...team2Players, newPlayer]);
+    }
+    setNewPlayerName('');
+    setAddingPlayerTo(null);
+  };
+
+  const removePlayer = (team, playerId) => {
+    if (team === 1) {
+      setTeam1Players(team1Players.filter(p => p.id !== playerId));
+    } else {
+      setTeam2Players(team2Players.filter(p => p.id !== playerId));
+    }
+  };
+
+  const editPlayer = (team, playerId, newName) => {
+    if (!newName.trim()) return;
+    if (team === 1) {
+      setTeam1Players(team1Players.map(p => p.id === playerId ? { ...p, name: newName } : p));
+    } else {
+      setTeam2Players(team2Players.map(p => p.id === playerId ? { ...p, name: newName } : p));
+    }
+    setEditingPlayerId(null);
+    setEditingPlayerName('');
+  };
+
+  const unselectTossup = () => {
+    const newRounds = [...rounds];
+    newRounds[currentRound - 1].tossupWinnerId = null;
+    newRounds[currentRound - 1].tossupWinnerTeam = null;
+    newRounds[currentRound - 1].tossupWinnerName = null;
+    setRounds(newRounds);
+  };
+
+  const getPlayerTossupCount = (team, playerId) => {
+    return rounds.filter(r => r.tossupWinnerId === playerId && r.tossupWinnerTeam === team).length;
+  };
+
+  const updateTeam1Bonus = (score) => {
+    const newRounds = [...rounds];
+    newRounds[currentRound - 1].team1BonusScore = Math.max(0, Math.min(30, score));
+    setRounds(newRounds);
+  };
+
+  const updateTeam2Bonus = (score) => {
+    const newRounds = [...rounds];
+    newRounds[currentRound - 1].team2BonusScore = Math.max(0, Math.min(30, score));
+    setRounds(newRounds);
+  };
+
+  const recordTossup = (teamNumber, playerId, playerName) => {
+    const newRounds = [...rounds];
+    newRounds[currentRound - 1].tossupWinnerId = playerId;
+    newRounds[currentRound - 1].tossupWinnerTeam = teamNumber;
+    newRounds[currentRound - 1].tossupWinnerName = playerName;
+    setRounds(newRounds);
+  };
+
+  const nextRound = () => {
+    if (currentRound < 24) setCurrentRound(currentRound + 1);
+  };
+
+  const previousRound = () => {
+    if (currentRound > 1) setCurrentRound(currentRound - 1);
+  };
 
   const saveGame = () => {
     const gameData = {
@@ -115,6 +188,8 @@ export default function ScholasticScorer() {
       competition,
       team1Name,
       team2Name,
+      team1Players,
+      team2Players,
       rounds,
       currentRound,
       scores,
@@ -160,7 +235,6 @@ export default function ScholasticScorer() {
   };
 
   const archiveGame = (gameData) => {
-    // Move game from savedGames to archivedGames
     const updatedSaved = savedGames.filter(game => game.id !== gameData.id);
     setSavedGames(updatedSaved);
     localStorage.setItem('scholasticGames', JSON.stringify(updatedSaved));
@@ -173,63 +247,40 @@ export default function ScholasticScorer() {
   };
 
   const exportGameAsText = (gameData) => {
-    const scores = {};
-    let roundNumber = 0;
-    for (let i = 0; i < gameData.rounds.length; i++) {
-      if (gameData.rounds[i].tossupWinnerTeam) {
-        roundNumber++;
-        const roundData = gameData.rounds[i];
-        const tossupTeam = roundData.tossupWinnerTeam === 1 ? gameData.team1Name : gameData.team2Name;
-        
-        if (!scores[tossupTeam]) scores[tossupTeam] = 0;
-        scores[tossupTeam] += roundData.tossupPoints;
-        
-        if (roundData.team1BonusScore > 0) {
-          if (!scores[gameData.team1Name]) scores[gameData.team1Name] = 0;
-          scores[gameData.team1Name] += roundData.team1BonusScore;
-        }
-        if (roundData.team2BonusScore > 0) {
-          if (!scores[gameData.team2Name]) scores[gameData.team2Name] = 0;
-          scores[gameData.team2Name] += roundData.team2BonusScore;
-        }
-      }
-    }
-
     let text = `SCHOLASTIC COMPETITION SCORESHEET\n`;
     text += `${'='.repeat(50)}\n\n`;
     text += `Competition: ${gameData.competition}\n`;
     text += `Saved: ${gameData.savedAt}\n`;
-    text += `Rounds Completed: ${roundNumber} of 24\n\n`;
+    text += `Rounds Completed: ${gameData.currentRound} of 24\n\n`;
     text += `FINAL SCORES\n`;
     text += `${'='.repeat(50)}\n`;
-    text += `${gameData.team1Name}: ${scores[gameData.team1Name] || 0} points\n`;
-    text += `${gameData.team2Name}: ${scores[gameData.team2Name] || 0} points\n\n`;
+    text += `${gameData.team1Name}: ${gameData.scores.team1Score} points\n`;
+    text += `${gameData.team2Name}: ${gameData.scores.team2Score} points\n\n`;
     text += `ROUND SUMMARY\n`;
     text += `${'='.repeat(50)}\n`;
-    text += `Round | ${gameData.team1Name.padEnd(20)} | ${gameData.team2Name.padEnd(20)} | Total\n`;
+    text += `Round | Toss-Up Winner | T1 Bonus | T2 Bonus | Total\n`;
     text += `${'='.repeat(50)}\n`;
 
     let team1RunningTotal = 0;
     let team2RunningTotal = 0;
 
     for (let i = 0; i < gameData.rounds.length; i++) {
-      if (gameData.rounds[i].tossupWinnerTeam) {
+      if (gameData.rounds[i].tossupWinnerId) {
         const round = i + 1;
         const roundData = gameData.rounds[i];
         
         if (roundData.tossupWinnerTeam === 1) {
           team1RunningTotal += roundData.tossupPoints + roundData.team1BonusScore;
+          team2RunningTotal += roundData.team2BonusScore;
         } else {
           team2RunningTotal += roundData.tossupPoints + roundData.team2BonusScore;
+          team1RunningTotal += roundData.team1BonusScore;
         }
-        
-        team1RunningTotal += roundData.team1BonusScore;
-        team2RunningTotal += roundData.team2BonusScore;
 
         const t1Score = (roundData.tossupWinnerTeam === 1 ? roundData.tossupPoints : 0) + roundData.team1BonusScore;
         const t2Score = (roundData.tossupWinnerTeam === 2 ? roundData.tossupPoints : 0) + roundData.team2BonusScore;
 
-        text += `${String(round).padEnd(5)} | ${String(t1Score).padEnd(20)} | ${String(t2Score).padEnd(20)} | ${team1RunningTotal + team2RunningTotal}\n`;
+        text += `${String(round).padEnd(5)} | ${roundData.tossupWinnerName.padEnd(13)} | ${String(t1Score).padEnd(7)} | ${String(t2Score).padEnd(7)} | ${team1RunningTotal + team2RunningTotal}\n`;
       }
     }
 
@@ -247,88 +298,23 @@ export default function ScholasticScorer() {
     document.body.removeChild(element);
   };
 
-  const handleStartGame = () => {
-    if (competition.trim() && team1Name.trim() && team2Name.trim()) {
-      setRosterSetup(true);
-    }
-  };
-
-  const recordTossup = (teamNumber, playerId, playerName) => {
-    const newRounds = [...rounds];
-    newRounds[currentRound - 1].tossupWinnerId = playerId;
-    newRounds[currentRound - 1].tossupWinnerTeam = teamNumber;
-    newRounds[currentRound - 1].tossupWinnerName = playerName;
-    setRounds(newRounds);
-  };
-
-  const addPlayer = (team) => {
-    if (!newPlayerName.trim()) return;
-    
-    if (team === 1) {
-      const newPlayer = { id: Date.now(), name: newPlayerName };
-      setTeam1Players([...team1Players, newPlayer]);
-    } else {
-      const newPlayer = { id: Date.now(), name: newPlayerName };
-      setTeam2Players([...team2Players, newPlayer]);
-    }
-    setNewPlayerName('');
-    setAddingPlayerTo(null);
-  };
-
-  const removePlayer = (team, playerId) => {
-    if (team === 1) {
-      setTeam1Players(team1Players.filter(p => p.id !== playerId));
-    } else {
-      setTeam2Players(team2Players.filter(p => p.id !== playerId));
-    }
-  };
-
-  const getPlayerTossupCount = (team, playerId) => {
-    return rounds.filter(r => r.tossupWinnerId === playerId && r.tossupWinnerTeam === team).length;
-  };
-
-  const updateTeam1Bonus = (score) => {
-    const newRounds = [...rounds];
-    newRounds[currentRound - 1].team1BonusScore = Math.max(0, Math.min(30, score));
-    setRounds(newRounds);
-  };
-
-  const updateTeam2Bonus = (score) => {
-    const newRounds = [...rounds];
-    newRounds[currentRound - 1].team2BonusScore = Math.max(0, Math.min(30, score));
-    setRounds(newRounds);
-  };
-
-  const nextRound = () => {
-    if (currentRound < 24) {
-      setCurrentRound(currentRound + 1);
-    }
-  };
-
-  const previousRound = () => {
-    if (currentRound > 1) {
-      setCurrentRound(currentRound - 1);
-    }
-  };
-
   const resetGame = () => {
-    setGameStarted(false);
-    setRosterSetup(false);
-    setCurrentRound(1);
-    setCompetition('');
-    setTeam1Name('Team A');
-    setTeam2Name('Team B');
-    setTeam1Players([]);
-    setTeam2Players([]);
-    setRounds(
-      Array(24).fill(null).map(() => ({
+    if (window.confirm('Are you sure you want to reset the entire game?')) {
+      setGameStarted(false);
+      setCompetition('');
+      setTeam1Name('Team A');
+      setTeam2Name('Team B');
+      setTeam1Players([]);
+      setTeam2Players([]);
+      setCurrentRound(1);
+      setRounds(Array(24).fill(null).map(() => ({
         tossupWinnerId: null,
         tossupWinnerTeam: null,
         team1BonusScore: 0,
         team2BonusScore: 0,
         tossupPoints: 10
-      }))
-    );
+      })));
+    }
   };
 
   const openEditNames = () => {
@@ -346,6 +332,37 @@ export default function ScholasticScorer() {
   };
 
   const currentRoundData = rounds[currentRound - 1];
+
+  if (!gameStarted && !rosterSetup) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 flex items-center justify-center">
+        <div className="w-full max-w-md bg-slate-800 border-2 border-slate-700 rounded-lg shadow-2xl p-8">
+          <h1 className="text-4xl font-bold text-white mb-8 text-center">Scholastic Scorer</h1>
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="block text-slate-300 font-semibold mb-2">Competition Name</label>
+              <input type="text" value={competition} onChange={(e) => setCompetition(e.target.value)} className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            </div>
+            <div>
+              <label className="block text-slate-300 font-semibold mb-2">Team 1 Name</label>
+              <input type="text" value={team1Name} onChange={(e) => setTeam1Name(e.target.value)} className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            </div>
+            <div>
+              <label className="block text-slate-300 font-semibold mb-2">Team 2 Name</label>
+              <input type="text" value={team2Name} onChange={(e) => setTeam2Name(e.target.value)} className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            </div>
+          </div>
+          <button onClick={handleStartGame} disabled={!competition.trim()} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded transition-colors text-lg mb-4">Start Scoring</button>
+          {localStorage.getItem('scholasticAutoSave') && (
+            <button onClick={restoreFromAutoSave} className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded transition-colors mb-4">Restore from Auto-Save</button>
+          )}
+          {savedGames.length > 0 && (
+            <button onClick={() => setShowLoadMenu(true)} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded transition-colors">Load Previous Game ({savedGames.length})</button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   if (editingNames) {
     return (
@@ -376,7 +393,7 @@ export default function ScholasticScorer() {
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6">
         <div className="max-w-6xl mx-auto">
           <h1 className="text-4xl font-bold text-white mb-2 text-center">Edit Team Members</h1>
-          <p className="text-slate-400 text-center mb-8">Add, remove, or edit player names</p>
+          <p className="text-slate-400 text-center mb-8">Add, remove, or edit player names (click name to edit)</p>
           <div className="grid grid-cols-2 gap-8 mb-8">
             <div className="bg-slate-800 border-2 border-blue-600 rounded-lg p-6">
               <h2 className="text-2xl font-bold text-blue-400 mb-6">{team1Name}</h2>
@@ -392,8 +409,54 @@ export default function ScholasticScorer() {
               <div className="space-y-2">
                 {team1Players.map((player) => (
                   <div key={player.id} className="bg-slate-700 p-3 rounded flex justify-between items-center">
-                    <span className="text-white font-semibold">{player.name}</span>
-                    <button onClick={() => removePlayer(1, player.id)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Remove</button>
+                    {editingPlayerId === player.id ? (
+                      <input
+                        type="text"
+                        value={editingPlayerName}
+                        onChange={(e) => setEditingPlayerName(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && editPlayer(1, player.id, editingPlayerName)}
+                        className="flex-1 px-3 py-1 bg-slate-600 border border-blue-500 rounded text-white placeholder-slate-400 focus:outline-none"
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        className="text-white font-semibold cursor-pointer hover:text-blue-400 flex-1"
+                        onClick={() => {
+                          setEditingPlayerId(player.id);
+                          setEditingPlayerName(player.name);
+                        }}
+                      >
+                        {player.name}
+                      </span>
+                    )}
+                    <div className="flex gap-2">
+                      {editingPlayerId === player.id ? (
+                        <>
+                          <button
+                            onClick={() => editPlayer(1, player.id, editingPlayerName)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingPlayerId(null);
+                              setEditingPlayerName('');
+                            }}
+                            className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1 rounded text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => removePlayer(1, player.id)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-sm font-bold"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -412,8 +475,54 @@ export default function ScholasticScorer() {
               <div className="space-y-2">
                 {team2Players.map((player) => (
                   <div key={player.id} className="bg-slate-700 p-3 rounded flex justify-between items-center">
-                    <span className="text-white font-semibold">{player.name}</span>
-                    <button onClick={() => removePlayer(2, player.id)} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm">Remove</button>
+                    {editingPlayerId === player.id ? (
+                      <input
+                        type="text"
+                        value={editingPlayerName}
+                        onChange={(e) => setEditingPlayerName(e.target.value)}
+                        onKeyPress={(e) => e.key === 'Enter' && editPlayer(2, player.id, editingPlayerName)}
+                        className="flex-1 px-3 py-1 bg-slate-600 border border-red-500 rounded text-white placeholder-slate-400 focus:outline-none"
+                        autoFocus
+                      />
+                    ) : (
+                      <span
+                        className="text-white font-semibold cursor-pointer hover:text-red-400 flex-1"
+                        onClick={() => {
+                          setEditingPlayerId(player.id);
+                          setEditingPlayerName(player.name);
+                        }}
+                      >
+                        {player.name}
+                      </span>
+                    )}
+                    <div className="flex gap-2">
+                      {editingPlayerId === player.id ? (
+                        <>
+                          <button
+                            onClick={() => editPlayer(2, player.id, editingPlayerName)}
+                            className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingPlayerId(null);
+                              setEditingPlayerName('');
+                            }}
+                            className="bg-slate-600 hover:bg-slate-500 text-white px-3 py-1 rounded text-sm"
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          onClick={() => removePlayer(2, player.id)}
+                          className="bg-red-600 hover:bg-red-700 text-white px-2 py-1 rounded text-sm font-bold"
+                        >
+                          ✕
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -548,42 +657,7 @@ export default function ScholasticScorer() {
             </div>
           </div>
           <div className="flex gap-4">
-            <button onClick={() => setRosterSetup(false)} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded transition-colors">Back</button>
-            <button onClick={() => { setGameStarted(true); setRosterSetup(false); }} disabled={team1Players.length === 0 || team2Players.length === 0} className="flex-1 bg-green-600 hover:bg-green-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded transition-colors">Start Scoring</button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!gameStarted) {
-    return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 p-6 flex items-center justify-center">
-        <div className="w-full max-w-2xl bg-slate-800 border-2 border-slate-700 rounded-lg shadow-2xl p-8">
-          <h1 className="text-4xl font-bold text-white mb-2 text-center">Scholastic Matches</h1>
-          <p className="text-slate-400 text-center mb-8">Score Tracker for Science Bowl Competitions</p>
-          <div className="space-y-6">
-            <div>
-              <label className="block text-slate-300 font-semibold mb-2">Competition Name</label>
-              <input type="text" value={competition} onChange={(e) => setCompetition(e.target.value)} placeholder="e.g., Regional Qualifiers 2024" className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-slate-300 font-semibold mb-2">Team 1 Name</label>
-                <input type="text" value={team1Name} onChange={(e) => setTeam1Name(e.target.value)} className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-              </div>
-              <div>
-                <label className="block text-slate-300 font-semibold mb-2">Team 2 Name</label>
-                <input type="text" value={team2Name} onChange={(e) => setTeam2Name(e.target.value)} className="w-full px-4 py-3 bg-slate-700 border border-slate-600 rounded text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
-              </div>
-            </div>
-            <button onClick={handleStartGame} disabled={!competition.trim()} className="w-full bg-blue-600 hover:bg-blue-700 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 rounded transition-colors text-lg">Start Scoring</button>
-            {localStorage.getItem('scholasticAutoSave') && (
-              <button onClick={restoreFromAutoSave} className="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-3 rounded transition-colors">Restore from Auto-Save</button>
-            )}
-            {savedGames.length > 0 && (
-              <button onClick={() => setShowLoadMenu(true)} className="w-full bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded transition-colors">Load Previous Game ({savedGames.length})</button>
-            )}
+            <button onClick={() => { if (team1Players.length > 0 && team2Players.length > 0) { setRosterSetup(false); setGameStarted(true); } else { alert('Both teams must have at least 1 player'); } }} className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded transition-colors">Start Scoring</button>
           </div>
         </div>
       </div>
@@ -603,40 +677,33 @@ export default function ScholasticScorer() {
             <button onClick={openEditNames} className="bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded transition-colors">Edit Names</button>
           </div>
         </div>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <div className="bg-slate-800 border-2 border-blue-600 rounded-lg p-6 shadow-lg">
-            <h2 className="text-xl font-bold text-blue-400 mb-4">{team1Name}</h2>
-            <div className="text-5xl font-bold text-blue-500 mb-2">{scores.team1Score}</div>
-            <p className="text-slate-400 text-sm mb-6">Total Points</p>
-            <div className="border-t border-slate-700 pt-4">
-              <div className="text-xs text-slate-400 mb-3 font-bold">Toss-up Answers</div>
-              <div className="space-y-2">
-                {team1Players.map((player) => (
-                  <div key={player.id} className="flex justify-between text-sm">
-                    <span className="text-slate-300">{player.name}</span>
-                    <span className="text-blue-400 font-bold">{getPlayerTossupCount(1, player.id)}</span>
-                  </div>
-                ))}
-              </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+          <div className="bg-slate-800 border-2 border-blue-600 rounded-lg p-6">
+            <h3 className="text-xl font-bold text-blue-400 mb-4">{team1Name}</h3>
+            <div className="text-4xl font-bold text-blue-400 mb-6">{scores.team1Score}</div>
+            <div className="space-y-2">
+              {team1Players.map((player) => (
+                <div key={player.id} className="bg-slate-700 p-2 rounded text-slate-300 text-sm">
+                  {player.name}: {getPlayerTossupCount(1, player.id)} toss-ups
+                </div>
+              ))}
             </div>
           </div>
-          <div className="bg-slate-800 border-2 border-red-600 rounded-lg p-6 shadow-lg">
-            <h2 className="text-xl font-bold text-red-400 mb-4">{team2Name}</h2>
-            <div className="text-5xl font-bold text-red-500 mb-2">{scores.team2Score}</div>
-            <p className="text-slate-400 text-sm mb-6">Total Points</p>
-            <div className="border-t border-slate-700 pt-4">
-              <div className="text-xs text-slate-400 mb-3 font-bold">Toss-up Answers</div>
-              <div className="space-y-2">
-                {team2Players.map((player) => (
-                  <div key={player.id} className="flex justify-between text-sm">
-                    <span className="text-slate-300">{player.name}</span>
-                    <span className="text-red-400 font-bold">{getPlayerTossupCount(2, player.id)}</span>
-                  </div>
-                ))}
-              </div>
+
+          <div className="bg-slate-800 border-2 border-red-600 rounded-lg p-6">
+            <h3 className="text-xl font-bold text-red-400 mb-4">{team2Name}</h3>
+            <div className="text-4xl font-bold text-red-400 mb-6">{scores.team2Score}</div>
+            <div className="space-y-2">
+              {team2Players.map((player) => (
+                <div key={player.id} className="bg-slate-700 p-2 rounded text-slate-300 text-sm">
+                  {player.name}: {getPlayerTossupCount(2, player.id)} toss-ups
+                </div>
+              ))}
             </div>
           </div>
         </div>
+
         <div className="bg-slate-800 border-2 border-slate-700 rounded-lg p-8 mb-8 shadow-lg">
           <h3 className="text-2xl font-bold text-white mb-6">Round {currentRound} Scoring</h3>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
@@ -645,75 +712,81 @@ export default function ScholasticScorer() {
               <p className="text-sm text-slate-400 mb-6">Who answered correctly? (10 points)</p>
               <div className="mb-8">
                 <h5 className="text-blue-400 font-semibold mb-3">{team1Name}</h5>
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-2 gap-2 mb-8">
                   {team1Players.map((player) => (
                     <button key={player.id} onClick={() => recordTossup(1, player.id, player.name)} className={`py-2 px-3 rounded font-semibold transition-all text-sm ${currentRoundData.tossupWinnerId === player.id && currentRoundData.tossupWinnerTeam === 1 ? 'bg-blue-600 text-white border-2 border-blue-400' : 'bg-slate-700 text-slate-300 border-2 border-slate-600 hover:border-blue-500'}`}>{player.name}</button>
                   ))}
                 </div>
               </div>
-              <div className="border-t border-slate-700 pt-8 lg:border-0 lg:pt-0">
+              <div>
                 <h5 className="text-red-400 font-semibold mb-3">{team2Name}</h5>
-                <div className="grid grid-cols-1 gap-2">
+                <div className="grid grid-cols-2 gap-2">
                   {team2Players.map((player) => (
                     <button key={player.id} onClick={() => recordTossup(2, player.id, player.name)} className={`py-2 px-3 rounded font-semibold transition-all text-sm ${currentRoundData.tossupWinnerId === player.id && currentRoundData.tossupWinnerTeam === 2 ? 'bg-red-600 text-white border-2 border-red-400' : 'bg-slate-700 text-slate-300 border-2 border-slate-600 hover:border-red-500'}`}>{player.name}</button>
                   ))}
                 </div>
               </div>
             </div>
+
             <div>
               <h4 className="text-lg font-semibold text-slate-300 mb-4">Bonus Round Scoring</h4>
-              <p className="text-sm text-slate-400 mb-6">{currentRoundData.tossupWinnerId ? `${currentRoundData.tossupWinnerName} got first shot at bonus` : 'Select a tossup winner first'}</p>
+              <p className="text-sm text-slate-400 mb-6">{currentRoundData.tossupWinnerId ? `${currentRoundData.tossupWinnerName}'s school gets first shot at bonus` : 'Select a tossup winner first'}</p>
               {currentRoundData.tossupWinnerId && (
-                <div className="space-y-6">
-                  <div className="bg-slate-700/50 border border-blue-600/50 rounded p-4">
-                    <label className="text-blue-400 font-semibold block mb-3">{team1Name} Bonus</label>
-                    <div className="flex items-center gap-2 mb-3">
-                      <button onClick={() => updateTeam1Bonus(currentRoundData.team1BonusScore - 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Minus size={20} /></button>
-                      <input type="number" min="0" max="30" value={currentRoundData.team1BonusScore} onChange={(e) => updateTeam1Bonus(parseInt(e.target.value) || 0)} className="w-20 px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white text-center font-bold focus:outline-none focus:border-blue-500" />
-                      <button onClick={() => updateTeam1Bonus(currentRoundData.team1BonusScore + 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Plus size={20} /></button>
-                      <span className="text-slate-400 text-sm">/ 30</span>
+                <>
+                  <button onClick={unselectTossup} className="mb-4 bg-slate-700 hover:bg-slate-600 text-white font-bold py-2 px-4 rounded transition-colors text-sm">↶ Unselect Tossup (Mistake)</button>
+                  <div className="space-y-6">
+                    <div className="bg-slate-700/50 border border-blue-600/50 rounded p-4">
+                      <label className="text-blue-400 font-semibold block mb-3">{team1Name} Bonus</label>
+                      <div className="flex items-center gap-2 mb-3">
+                        <button onClick={() => updateTeam1Bonus(currentRoundData.team1BonusScore - 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Minus size={20} /></button>
+                        <input type="number" min="0" max="30" value={currentRoundData.team1BonusScore} onChange={(e) => updateTeam1Bonus(parseInt(e.target.value) || 0)} className="w-20 px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white text-center font-bold focus:outline-none focus:border-blue-500" />
+                        <button onClick={() => updateTeam1Bonus(currentRoundData.team1BonusScore + 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Plus size={20} /></button>
+                        <span className="text-slate-400 text-sm">/ 30</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {[0, 10, 20, 30].map((score) => (
+                          <button key={score} onClick={() => updateTeam1Bonus(score)} className={`px-3 py-1 text-sm rounded font-semibold transition-all ${currentRoundData.team1BonusScore === score ? 'bg-blue-600 text-white' : 'bg-slate-600 text-slate-300 hover:bg-slate-500'}`}>{score}</button>
+                        ))}
+                      </div>
                     </div>
-                    <div className="flex flex-wrap gap-2">
-                      {[0, 10, 20, 30].map((score) => (
-                        <button key={score} onClick={() => updateTeam1Bonus(score)} className={`px-3 py-1 text-sm rounded font-semibold transition-all ${currentRoundData.team1BonusScore === score ? 'bg-blue-600 text-white' : 'bg-slate-600 text-slate-300 hover:bg-slate-500'}`}>{score}</button>
-                      ))}
+                    <div className="bg-slate-700/50 border border-red-600/50 rounded p-4">
+                      <label className="text-red-400 font-semibold block mb-3">{team2Name} Bonus</label>
+                      <div className="flex items-center gap-2 mb-3">
+                        <button onClick={() => updateTeam2Bonus(currentRoundData.team2BonusScore - 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Minus size={20} /></button>
+                        <input type="number" min="0" max="30" value={currentRoundData.team2BonusScore} onChange={(e) => updateTeam2Bonus(parseInt(e.target.value) || 0)} className="w-20 px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white text-center font-bold focus:outline-none focus:border-blue-500" />
+                        <button onClick={() => updateTeam2Bonus(currentRoundData.team2BonusScore + 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Plus size={20} /></button>
+                        <span className="text-slate-400 text-sm">/ 30</span>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        {[0, 10, 20, 30].map((score) => (
+                          <button key={score} onClick={() => updateTeam2Bonus(score)} className={`px-3 py-1 text-sm rounded font-semibold transition-all ${currentRoundData.team2BonusScore === score ? 'bg-red-600 text-white' : 'bg-slate-600 text-slate-300 hover:bg-slate-500'}`}>{score}</button>
+                        ))}
+                      </div>
                     </div>
                   </div>
-                  <div className="bg-slate-700/50 border border-red-600/50 rounded p-4">
-                    <label className="text-red-400 font-semibold block mb-3">{team2Name} Bonus</label>
-                    <div className="flex items-center gap-2 mb-3">
-                      <button onClick={() => updateTeam2Bonus(currentRoundData.team2BonusScore - 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Minus size={20} /></button>
-                      <input type="number" min="0" max="30" value={currentRoundData.team2BonusScore} onChange={(e) => updateTeam2Bonus(parseInt(e.target.value) || 0)} className="w-20 px-3 py-2 bg-slate-700 border border-slate-600 rounded text-white text-center font-bold focus:outline-none focus:border-blue-500" />
-                      <button onClick={() => updateTeam2Bonus(currentRoundData.team2BonusScore + 10)} className="bg-slate-600 hover:bg-slate-500 text-white p-2 rounded transition-colors"><Plus size={20} /></button>
-                      <span className="text-slate-400 text-sm">/ 30</span>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {[0, 10, 20, 30].map((score) => (
-                        <button key={score} onClick={() => updateTeam2Bonus(score)} className={`px-3 py-1 text-sm rounded font-semibold transition-all ${currentRoundData.team2BonusScore === score ? 'bg-red-600 text-white' : 'bg-slate-600 text-slate-300 hover:bg-slate-500'}`}>{score}</button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                </>
               )}
             </div>
           </div>
         </div>
+
         <div className="flex gap-4 mb-8">
           <button onClick={previousRound} disabled={currentRound === 1} className="flex-1 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold py-3 rounded transition-colors">← Previous Round</button>
           <button onClick={nextRound} disabled={currentRound === 24} className="flex-1 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-600 text-white font-bold py-3 rounded transition-colors">Next Round →</button>
           <button onClick={saveGame} className="flex-1 bg-green-700 hover:bg-green-600 text-white font-bold py-3 rounded transition-colors flex items-center justify-center gap-2"><Save size={20} /> Save Game</button>
           <button onClick={resetGame} className="flex-1 bg-red-700 hover:bg-red-600 text-white font-bold py-3 rounded transition-colors flex items-center justify-center gap-2"><RotateCcw size={20} /> Reset</button>
+          <button onClick={() => setShowLoadMenu(true)} className="flex-1 bg-slate-700 hover:bg-slate-600 text-white font-bold py-3 rounded transition-colors">Load Game</button>
         </div>
+
         <div className="bg-slate-800 border border-slate-700 rounded-lg p-6">
           <h3 className="text-lg font-bold text-white mb-4">Round History</h3>
           <div className="max-h-64 overflow-y-auto">
             <div className="grid grid-cols-12 gap-2 text-xs text-slate-400 mb-3 pb-3 border-b border-slate-700">
               <div className="col-span-2 font-bold">Round</div>
-              <div className="col-span-2 font-bold">TossUp</div>
+              <div className="col-span-3 font-bold">TossUp</div>
               <div className="col-span-2 font-bold">T1 Bonus</div>
               <div className="col-span-2 font-bold">T2 Bonus</div>
               <div className="col-span-2 font-bold">Total</div>
-              <div className="col-span-2 font-bold">—</div>
             </div>
             {rounds.map((round, idx) => {
               let roundTotal = 0;
@@ -723,11 +796,10 @@ export default function ScholasticScorer() {
               return (
                 <div key={idx} onClick={() => setCurrentRound(idx + 1)} className={`grid grid-cols-12 gap-2 text-sm py-2 px-3 rounded cursor-pointer transition-colors ${idx + 1 === currentRound ? 'bg-blue-600/30 border-l-2 border-blue-500' : round.tossupWinnerId ? 'hover:bg-slate-700/50' : 'text-slate-500'}`}>
                   <div className="col-span-2 font-bold text-white">{idx + 1}</div>
-                  <div className="col-span-2">{round.tossupWinnerId ? <span className={round.tossupWinnerTeam === 1 ? 'text-blue-400' : 'text-red-400'}>{round.tossupWinnerName}</span> : <span className="text-slate-600">—</span>}</div>
+                  <div className="col-span-3">{round.tossupWinnerId ? <span className={round.tossupWinnerTeam === 1 ? 'text-blue-400' : 'text-red-400'}>{round.tossupWinnerName}</span> : <span className="text-slate-600">—</span>}</div>
                   <div className="col-span-2"><span className="text-blue-400">{round.team1BonusScore}</span></div>
                   <div className="col-span-2"><span className="text-red-400">{round.team2BonusScore}</span></div>
                   <div className="col-span-2"><span className="text-white font-bold">{roundTotal}</span></div>
-                  <div className="col-span-2">—</div>
                 </div>
               );
             })}

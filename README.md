@@ -1,6 +1,6 @@
-# Scholastic Matches Scorer
+# Scholastic Scorer
 
-A professional, responsive scoring application for Science Bowl scholastic competitions. Track individual player toss-up answers, team bonus points, and maintain complete competition records with auto-save functionality.
+A professional, responsive scoring application for any scholastic competitions with 10 points each. Track individual player toss-up answers, team bonus points, and maintain complete competition records with auto-save functionality.
 
 ## Features
 

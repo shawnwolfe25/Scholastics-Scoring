@@ -1,7 +1,7 @@
 {
   "name": "scholastic-scorer",
   "version": "1.0.0",
-  "description": "Professional scoring application for Science Bowl scholastic competitions",
+  "description": "Scoring for any Scholastic Competitions with 10 points each",
   "private": true,
   "homepage": "./",
   "dependencies": {
@@ -41,3 +41,4 @@
     "autoprefixer": "^10.4.14"
   }
 }
+
